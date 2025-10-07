@@ -4,11 +4,15 @@ from std_msgs.msg import String
 
 rospy.init_node('publisher')
 
-rate = rospy.Rate(2)
+message = rospy.get_param('~message', 'Hello World!')
+
+ros_rate = rospy.get_param('~rate', 1)
+
+rate = rospy.Rate(ros_rate)
 
 pub = rospy.Publisher('/message', String, queue_size=10)
 
 while not rospy.is_shutdown():
-    pub.publish('Hello world!')
+    pub.publish(message)
     rate.sleep()
 
