@@ -13,22 +13,18 @@ from geometry_msgs.msg import PoseStamped, TwistStamped, Quaternion, TransformSt
 class Localizer:
     def __init__(self):
 
-        # Parameters
         self.undulation = rospy.get_param('undulation')
         utm_origin_lat = rospy.get_param('utm_origin_lat')
         utm_origin_lon = rospy.get_param('utm_origin_lon')
-        
-        # Internal variables
+
         self.crs_wgs84 = CRS.from_epsg(4326)
         self.crs_utm = CRS.from_epsg(25835)
         self.utm_projection = Proj(self.crs_utm)
         self.transformer = Transformer.from_crs(self.crs_wgs84, self.crs_utm)
         self.origin_x, self.origin_y = self.transformer.transform(utm_origin_lat, utm_origin_lon)
 
-        # Subscribers
         rospy.Subscriber('/novatel/oem7/inspva', INSPVA, self.transform_coordinates)
 
-        # Publishers
         self.current_pose_pub = rospy.Publisher('current_pose', PoseStamped, queue_size=10)
         self.current_velocity_pub = rospy.Publisher('current_velocity', TwistStamped, queue_size=10)
         self.br = TransformBroadcaster()
@@ -39,24 +35,17 @@ class Localizer:
         x = x - self.origin_x
         y = y - self.origin_y 
 
-        #print("Lat, Long:", msg.latitude, msg.longitude)
-        print("x {} y {}".format(x, y))
-
         azimuth_correction = self.utm_projection.get_factors(msg.longitude, msg.latitude).meridian_convergence
 
         azimuth_rad = math.radians(msg.azimuth)
 
-        corrected_azimuth = azimuth_rad - azimuth_correction
+        corrected_azimuth = azimuth_rad - math.radians(azimuth_correction)
 
         yaw = self.convert_azimuth_to_yaw(corrected_azimuth)
 
-        # Convert yaw to quaternion
         qx, qy, qz, qw = quaternion_from_euler(0, 0, yaw)
         orientation = Quaternion(qx, qy, qz, qw)
-        
-        #print(msg.header.stamp)
-        
-        # publish current pose
+
         current_pose_msg = PoseStamped()
         current_pose_msg.header.stamp = msg.header.stamp
         current_pose_msg.header.frame_id = 'map'
@@ -65,9 +54,6 @@ class Localizer:
         current_pose_msg.pose.position.z = msg.height - self.undulation
         current_pose_msg.pose.orientation = orientation
         self.current_pose_pub.publish(current_pose_msg)
-
-
-        ### Velocity
 
         nv = msg.north_velocity
         ev = msg.east_velocity
@@ -81,14 +67,10 @@ class Localizer:
 
         self.current_velocity_pub.publish(current_velocity_msg)
 
-
-        # TransformStamped
-
         t = TransformStamped()
         t.header.frame_id = 'map'
         t.child_frame_id = 'base_link'
         t.header.stamp = msg.header.stamp
-        
 
         t.transform.translation.x = x
         t.transform.translation.y = y
@@ -99,15 +81,9 @@ class Localizer:
         self.br.sendTransform(t)
 
 
-    # convert azimuth to yaw angle
     def convert_azimuth_to_yaw(self, azimuth):
-        """
-        Converts azimuth to yaw. Azimuth is CW angle from the north. Yaw is CCW angle from the East.
-        :param azimuth: azimuth in radians
-        :return: yaw in radians
-        """
+
         yaw = -azimuth + math.pi/2
-        # Clamp within 0 to 2 pi
         if yaw > 2 * math.pi:
             yaw = yaw - 2 * math.pi
         elif yaw < 0:
