@@ -8,7 +8,6 @@ from shapely.geometry import LineString, Point
 from shapely import prepare, distance
 from tf.transformations import euler_from_quaternion
 import numpy as np
-
 from scipy.interpolate import interp1d
 
 
@@ -16,7 +15,6 @@ class PurePursuitFollower:
     def __init__(self):
 
         # Parameters
-
         self.lookahead_distance = rospy.get_param('/control/pure_pursuit_follower/lookahead_distance')
         self.wheel_base = rospy.get_param('/vehicle/wheel_base')
 
@@ -36,28 +34,21 @@ class PurePursuitFollower:
     def path_callback(self, msg):
         
         self.path_linestring = LineString([(w.position.x, w.position.y) for w in msg.waypoints])
-        
-        #prepare path - creates spatial tree, making the spatial queries more efficient
-        
+
         prepare(self.path_linestring)
 
-        # Waypoint Operations
-
-        # Create a distance-to-velocity interpolator for the path
-        # collect waypoint x and y coordinates
         waypoints_xy = np.array([(w.position.x, w.position.y) for w in msg.waypoints])
-        # Calculate distances between points
+
         distances = np.cumsum(np.sqrt(np.sum(np.diff(waypoints_xy, axis=0) ** 2, axis=1)))
-        # add 0 distance in the beginning
+
         distances = np.insert(distances, 0, 0)
-        # Extract velocity values at waypoints
+
         velocities = np.array([w.speed for w in msg.waypoints])
 
         self.distance_to_velocity_interpolator = interp1d(distances, velocities, kind='linear')
 
 
     def current_pose_callback(self, msg):
-        # project -> en yakın mesafeyi döndürüyor.
 
         self.current_pose = msg
 
@@ -74,18 +65,11 @@ class PurePursuitFollower:
 
         _, _, heading = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
 
-
         look_ahaed_point = self.path_linestring.interpolate(d_ego_from_path_start + ld)
 
-        # lookahead point heading calculation
         lookahead_heading = np.arctan2(look_ahaed_point.y - current_pose.y, look_ahaed_point.x - current_pose.x)
 
         ld = shapely.distance(look_ahaed_point, Point(current_pose.x, current_pose.y))
-
-        # project -> noktanın lineString üzerindeki en yakın noktasının mesafesini bulur, aracın yolun başlangıcından itibaren
-        # olan kat ettiği mesafeyi bulur.
-
-        # interpolate -> bir mesafe verdiğimizde, linestring üzerinde başlangıçtan itibaren ilerleyip o noktayı bulur.
 
         alpha = lookahead_heading - heading
 
