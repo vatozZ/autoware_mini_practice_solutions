@@ -54,7 +54,14 @@ class PurePursuitFollower:
 
         current_pose = Point([msg.pose.position.x, msg.pose.position.y])
         
-        if self.path_linestring == None:
+        if self.path_linestring is None:
+            
+            vehicle_cmd = VehicleCmd()
+            vehicle_cmd.ctrl_cmd.steering_angle = self.steering_angle
+            vehicle_cmd.ctrl_cmd.linear_velocity = self.velocity
+            vehicle_cmd.header.stamp = self.current_pose.header.stamp
+            vehicle_cmd.header.frame_id = 'base_link'
+            self.vehicle_cmd_pub.publish(vehicle_cmd)
             return
         
         d_ego_from_path_start = self.path_linestring.project(current_pose)
@@ -69,7 +76,7 @@ class PurePursuitFollower:
 
         lookahead_heading = np.arctan2(look_ahaed_point.y - current_pose.y, look_ahaed_point.x - current_pose.x)
 
-        ld = shapely.distance(look_ahaed_point, Point(current_pose.x, current_pose.y))
+        ld = shapely.distance(look_ahaed_point, current_pose)
 
         alpha = lookahead_heading - heading
 
@@ -78,25 +85,22 @@ class PurePursuitFollower:
         self.steering_angle = steering_angle
         self.velocity = self.distance_to_velocity_interpolator(d_ego_from_path_start)
 
+        if not self.distance_to_velocity_interpolator is None:
+            vehicle_cmd = VehicleCmd()
+            vehicle_cmd.ctrl_cmd.steering_angle = self.steering_angle
+            vehicle_cmd.ctrl_cmd.linear_velocity = self.velocity
+
+            vehicle_cmd.header.stamp = self.current_pose.header.stamp
+            vehicle_cmd.header.frame_id = 'base_link'
+
+            self.vehicle_cmd_pub.publish(vehicle_cmd)
+        
 
     def run(self):
 
-        rate = rospy.Rate(10)
-
-        while not rospy.is_shutdown():
-            if not self.current_pose is None and not self.distance_to_velocity_interpolator is None:
-
-                vehicle_cmd = VehicleCmd()
-                vehicle_cmd.ctrl_cmd.steering_angle = self.steering_angle
-                vehicle_cmd.ctrl_cmd.linear_velocity = self.velocity
-
-                vehicle_cmd.header.stamp = self.current_pose.header.stamp
-                vehicle_cmd.header.frame_id = 'base_link'
-
-                self.vehicle_cmd_pub.publish(vehicle_cmd)
-
-            rate.sleep()
-
+        rospy.spin()
+        
+        
 if __name__ == '__main__':
     rospy.init_node('pure_pursuit_follower')
     node = PurePursuitFollower()
