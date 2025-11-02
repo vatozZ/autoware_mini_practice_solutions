@@ -57,7 +57,26 @@ class GlobalPlanner:
 
             self.path_no_lane_change = path.getRemainingLane(start_lanelet)
 
-            self.lanelet_to_waypoints()
+            waypoints = self.lanelet_to_waypoints()
+
+            if not waypoints:
+                self.publish_waypoints([])
+                return
+            
+            min_distance = float('inf')
+            closest_waypoint_index = -1
+
+            for i, wp in enumerate(waypoints):
+                wp_point = Point(wp.position.x, wp.position.y)
+                current_distance = wp_point.distance(Point(self.goal_point.x, self.goal_point.y))
+                if current_distance < min_distance:
+                    min_distance = current_distance
+                    closest_waypoint_index = i
+            
+            waypoints = waypoints[:closest_waypoint_index + 1]
+            self.publish_waypoints(waypoints=waypoints)
+            
+
 
     def goal_point_callback(self, msg):
 
@@ -83,7 +102,6 @@ class GlobalPlanner:
             empty_path.waypoints = []
             self.waypoints_pub.publish(empty_path)
             self.goal_point = None
-
             return
         
     
@@ -107,8 +125,7 @@ class GlobalPlanner:
                     waypoint.speed = speed
                     waypoints.append(waypoint)
 
-            self.publish_waypoints(waypoints)        
-                    
+        return waypoints            
 
     def publish_waypoints(self, waypoints):
 
