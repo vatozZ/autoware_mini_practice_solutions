@@ -33,6 +33,11 @@ class PurePursuitFollower:
 
     def path_callback(self, msg):
         
+        if len(msg.waypoints) < 2:
+            self.path_linestring = None
+            self.distance_to_velocity_interpolator = None
+            return
+        
         self.path_linestring = LineString([(w.position.x, w.position.y) for w in msg.waypoints])
 
         prepare(self.path_linestring)
@@ -57,8 +62,8 @@ class PurePursuitFollower:
         if self.path_linestring is None:
             
             vehicle_cmd = VehicleCmd()
-            vehicle_cmd.ctrl_cmd.steering_angle = self.steering_angle
-            vehicle_cmd.ctrl_cmd.linear_velocity = self.velocity
+            vehicle_cmd.ctrl_cmd.steering_angle = 0.0
+            vehicle_cmd.ctrl_cmd.linear_velocity = 0.0
             vehicle_cmd.header.stamp = self.current_pose.header.stamp
             vehicle_cmd.header.frame_id = 'base_link'
             self.vehicle_cmd_pub.publish(vehicle_cmd)
