@@ -3,6 +3,7 @@
 import logging
 import rospy
 import numpy as np
+from copy import deepcopy
 from shapely.geometry import LineString, Point
 
 import lanelet2
@@ -50,7 +51,6 @@ class GlobalPlanner:
             current_pose = Point(self.current_location.x, self.current_location.y)
             goal_pose = Point(self.goal_point.x, self.goal_point.y)
 
-            # TASK 4
             if current_pose.distance(goal_pose) < self.distance_to_goal_limit:
             
                 rospy.loginfo(" Goal has been reached !")
@@ -60,7 +60,15 @@ class GlobalPlanner:
                 self.path_no_lane_change = []
 
                 self.goal_point = None
-                
+
+                return
+                    
+            waypoints = self.align_goal_point(self.full_waypoints)
+            
+            if len(waypoints) >= 2:
+                self.publish_waypoints(waypoints=waypoints)        
+            else:
+                self.publish_waypoints([])    
 
     def goal_point_callback(self, msg):
         
@@ -81,41 +89,65 @@ class GlobalPlanner:
 
         if route is None:
             logging.warning('No route is found !')
+            self.goal_point = None
+            self.publish_waypoints([])
             return
 
         path = route.shortestPath()
 
         self.path_no_lane_change = path.getRemainingLane(start_lanelet)
 
-        waypoints = self.lanelet_to_waypoints()
+        self.full_waypoints = self.lanelet_to_waypoints()
         
-        if not waypoints:
+        if not self.full_waypoints:
             self.publish_waypoints([])
+            self.goal_point = None
             return
-        
-        waypoints = self.align_goal_point(waypoints)
 
-        self.publish_waypoints(waypoints=waypoints)        
+    def align_goal_point(self, full_waypoints):
 
-
-    def align_goal_point(self, waypoints):
-        
+        current_point = Point(self.current_location.x, self.current_location.y)
         goal_point = Point(self.goal_point.x, self.goal_point.y)
 
-        min_distance = float('inf')
-        closest_waypoint_index = -1
+        start_index, end_index = 0, len(full_waypoints) - 1
 
-        for i, wp in enumerate(waypoints):
+        min_distance_goal, min_distance_start = float('inf'), float('inf')
+
+        for i, wp in enumerate(full_waypoints):
             
             wp_point = Point(wp.position.x, wp.position.y)
-            current_distance = wp_point.distance(goal_point)
 
-            if current_distance < min_distance:
-                min_distance = current_distance
-                closest_waypoint_index = i
+            distance_current = wp_point.distance(current_point)
+            if distance_current < min_distance_start:
+                min_distance_start = distance_current
+                start_index = i
+
+            goal_distance = wp_point.distance(goal_point)
+            if goal_distance < min_distance_goal:
+                min_distance_goal = goal_distance
+                end_index = i
         
-        waypoints = waypoints[:closest_waypoint_index + 1]
+        if start_index > end_index:
+             
+             if full_waypoints:
+                 last_wp = deepcopy(full_waypoints[-1])
+                 last_wp.position.x = self.goal_point.x
+                 last_wp.position.y = self.goal_point.y
+                 return [last_wp]
+             return []
+
+
+        cropped_waypoints = []
+        for wp in full_waypoints[start_index : end_index + 1]:
+            cropped_waypoints.append(deepcopy(wp))
+
+        if cropped_waypoints:
             
+            last_wp = cropped_waypoints[-1]
+            last_wp.position.x  = self.goal_point.x
+            last_wp.position.y  = self.goal_point.y
+            
+        return cropped_waypoints
 
     def lanelet_to_waypoints(self): 
         

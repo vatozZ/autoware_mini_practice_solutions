@@ -1,7 +1,13 @@
 Solution to the last task
 
-- The array of waypoints obtained after the waypoint calculation is sent to the align_goal_point() function.
-- Here, the Euclidean distance between each waypoint and the goal point is calculated. 
-- The point with the minimum Euclidean distance is actually the closest point to the goal. 
-- For the elements within the waypoints list, the part of the list up to the point closest to the goal_point is retained, and the section after that relevant point is removed.
+The array of waypoints obtained after the waypoint calculation is sent to the align_goal_point() function.
 
+The Euclidean distance between each waypoint and the start point (current location) is calculated. 
+The point with the minimum Euclidean distance is found to determine the start_index.
+
+The Euclidean distance between each waypoint and the goal point is calculated. 
+The point with the minimum Euclidean distance is found to determine the end_index.
+
+The waypoints list is then clipped to include only the elements from the start_index up to and including the end_index.
+
+The last waypoint's coordinates are then set to the exact coordinates of the matched goal point.
