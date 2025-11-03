@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
+
 import logging
 import rospy
-from autoware_mini.msg import Path, Waypoint
-from geometry_msgs.msg import PoseStamped
-from shapely.geometry import LineString, Point
 import numpy as np
+from shapely.geometry import LineString, Point
+
 import lanelet2
 from lanelet2.core import BasicPoint2d
 from lanelet2.geometry import findNearest
+
+from autoware_mini.msg import Path, Waypoint
+from geometry_msgs.msg import PoseStamped
 from autoware_mini.lanelet2 import load_lanelet2_map
 
 
@@ -39,47 +42,31 @@ class GlobalPlanner:
 
 
     def current_pose_callback(self, msg):
+
         self.current_location = BasicPoint2d(msg.pose.position.x, msg.pose.position.y)
 
         if self.goal_point is not None:
+            
+            current_pose = Point(self.current_location.x, self.current_location.y)
+            goal_pose = Point(self.goal_point.x, self.goal_point.y)
 
-            # get start and end lanelets
-            start_lanelet = findNearest(self.lanelet2_map.laneletLayer, self.current_location, 1)[0][1]
-            goal_lanelet = findNearest(self.lanelet2_map.laneletLayer, self.goal_point, 1)[0][1]
-            # find routing graph
-            route = self.graph.getRoute(start_lanelet, goal_lanelet, 0, True)
+            # TASK 4
+            if current_pose.distance(goal_pose) < self.distance_to_goal_limit:
+            
+                rospy.loginfo(" Goal has been reached !")
 
-            if route is None:
-                logging.warning('No route is found !')
-                return None
-
-            path = route.shortestPath()
-
-            self.path_no_lane_change = path.getRemainingLane(start_lanelet)
-
-            waypoints = self.lanelet_to_waypoints()
-
-            if not waypoints:
                 self.publish_waypoints([])
-                return
-            
-            min_distance = float('inf')
-            closest_waypoint_index = -1
+                
+                self.path_no_lane_change = []
 
-            for i, wp in enumerate(waypoints):
-                wp_point = Point(wp.position.x, wp.position.y)
-                current_distance = wp_point.distance(Point(self.goal_point.x, self.goal_point.y))
-                if current_distance < min_distance:
-                    min_distance = current_distance
-                    closest_waypoint_index = i
-            
-            waypoints = waypoints[:closest_waypoint_index + 1]
-            self.publish_waypoints(waypoints=waypoints)
-            
-
+                self.goal_point = None
+                
 
     def goal_point_callback(self, msg):
-
+        
+        if self.current_location is None:
+            return
+        
         self.goal_point = BasicPoint2d(msg.pose.position.x, msg.pose.position.y)
 
         rospy.loginfo("%s - goal position (%f, %f, %f) orientation (%f, %f, %f, %f) in %s frame", rospy.get_name(),
@@ -87,47 +74,84 @@ class GlobalPlanner:
                       msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z,
                       msg.pose.orientation.w, msg.header.frame_id)
 
-    def lanelet_to_waypoints(self):
+        start_lanelet = findNearest(self.lanelet2_map.laneletLayer, self.current_location, 1)[0][1]
+        goal_lanelet = findNearest(self.lanelet2_map.laneletLayer, self.goal_point, 1)[0][1]
         
-        current_pose = Point(self.current_location.x, self.current_location.y)
-        goal_pose = Point(self.goal_point.x, self.goal_point.y)
+        route = self.graph.getRoute(start_lanelet, goal_lanelet, 0, True)
 
-        if current_pose.distance(goal_pose) < self.distance_to_goal_limit:
-            
-            rospy.loginfo(" Goal has been reached !")
+        if route is None:
+            logging.warning('No route is found !')
+            return
 
-            empty_path = Path()
-            empty_path.header.frame_id = self.output_frame
-            empty_path.header.stamp = rospy.Time.now()
-            empty_path.waypoints = []
-            self.waypoints_pub.publish(empty_path)
-            self.goal_point = None
+        path = route.shortestPath()
+
+        self.path_no_lane_change = path.getRemainingLane(start_lanelet)
+
+        waypoints = self.lanelet_to_waypoints()
+        
+        if not waypoints:
+            self.publish_waypoints([])
             return
         
-    
-        else:
-            waypoints = []
+        waypoints = self.align_goal_point(waypoints)
 
-            speed = self.max_speed_ms
+        self.publish_waypoints(waypoints=waypoints)        
 
-            for lanelet in self.path_no_lane_change:
-                if 'speed_ref' in lanelet.attributes:
-                    speed = float(lanelet.attributes['speed_ref']) / 3.6
-                    speed = min(speed, self.max_speed_ms)
 
-                for enum, point in enumerate(lanelet.centerline):
-                    if enum == len(lanelet.centerline) - 1:
-                        break #overlap checker
-                    waypoint = Waypoint()
-                    waypoint.position.x = point.x
-                    waypoint.position.y = point.y
-                    waypoint.position.z = point.z
-                    waypoint.speed = speed
-                    waypoints.append(waypoint)
+    def align_goal_point(self, waypoints):
+        
+        goal_point = Point(self.goal_point.x, self.goal_point.y)
 
+        min_distance = float('inf')
+        closest_waypoint_index = -1
+
+        for i, wp in enumerate(waypoints):
+            
+            wp_point = Point(wp.position.x, wp.position.y)
+            current_distance = wp_point.distance(goal_point)
+
+            if current_distance < min_distance:
+                min_distance = current_distance
+                closest_waypoint_index = i
+        
+        waypoints = waypoints[:closest_waypoint_index + 1]
+            
+
+    def lanelet_to_waypoints(self): 
+        
+        speed = self.max_speed_ms
+
+        waypoints = []
+
+        for lanelet_index, lanelet in enumerate(self.path_no_lane_change):
+            
+            if 'speed_ref' in lanelet.attributes:
+                speed = float(lanelet.attributes['speed_ref']) / 3.6
+                speed = min(speed, self.max_speed_ms)
+
+            center_points = list(lanelet.centerline)
+            
+            points_to_process = []
+
+            if lanelet_index == 0:    
+                points_to_process = center_points
+            else:
+                points_to_process = center_points[1:]
+            
+            for point in points_to_process:
+                
+                waypoint = Waypoint()
+                waypoint.position.x = point.x
+                waypoint.position.y = point.y
+                waypoint.position.z = point.z
+                waypoint.speed = speed
+
+                waypoints.append(waypoint)
+            
+            
         return waypoints            
 
-    def publish_waypoints(self, waypoints):
+    def publish_waypoints(self, waypoints): 
 
         path = Path()        
         path.header.frame_id = self.output_frame
