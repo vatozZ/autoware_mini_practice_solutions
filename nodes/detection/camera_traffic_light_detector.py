@@ -104,6 +104,9 @@ class CameraTrafficLightDetector:
     def local_path_callback(self, local_path_msg):
 
         if len(local_path_msg.waypoints) == 0:
+            with self.lock:
+                self.stoplines_on_path = []
+                self.transform_from_frame = local_path_msg.header.frame_id
             return
         
         path_points = []
